@@ -23,23 +23,23 @@ func NewWallet(playerId string, initialBalance Money) (Wallet, error) {
 
 	return Wallet{
 		id:        "temp-id-123",
-		playerId : playerId,
-		currency: initialBalance.currency,
-		balance: initialBalance,
-		version: 1,
+		playerId:  playerId,
+		currency:  initialBalance.currency,
+		balance:   initialBalance,
+		version:   1,
 		createdAt: time.Now().UTC(),
-		updatedAt: time.Now().UTC()
+		updatedAt: time.Now().UTC(),
 	}, nil
 }
 
-func (w* Wallet) Debit(amount Money) error{
+func (w *Wallet) Debit(amount Money) error {
 
 	newBalance, err := w.balance.Subtract(amount)
 	if err != nil {
 		return err
 	}
 
-	if newBalance.amount <0 {
+	if newBalance.amount < 0 {
 		return errors.New("insufficient funds")
 	}
 
@@ -50,7 +50,7 @@ func (w* Wallet) Debit(amount Money) error{
 	return nil
 }
 
-func (w* Wallet) Credit(amount Money) error {
+func (w *Wallet) Credit(amount Money) error {
 
 	newBalance, err := w.balance.Add(amount)
 	if err != nil {
@@ -63,4 +63,3 @@ func (w* Wallet) Credit(amount Money) error {
 
 	return nil
 }
-
