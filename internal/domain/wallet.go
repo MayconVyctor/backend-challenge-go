@@ -70,6 +70,21 @@ type WalletRepository interface {
 	Save(ctz context.Context, w *Wallet) error
 }
 
+func RestoreWallet(id string, playerId string, currency string, balanceAmount int64, version int, createdAt time.Time, updatedAt time.Time) *Wallet {
+
+	restoredBalance := RestoreMoney(balanceAmount, currency)
+
+	return &Wallet{
+		id:        id,
+		playerId:  playerId,
+		currency:  currency,
+		balance:   restoredBalance,
+		version:   version,
+		createdAt: createdAt,
+		updatedAt: updatedAt,
+	}
+}
+
 func (w *Wallet) ID() string {
 	return w.id
 }
