@@ -3,7 +3,10 @@ package database
 import (
 	"backend-challenge-go/internal/domain"
 	"context"
+	"errors"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,5 +37,50 @@ func (r *pgxWalletRepository) Save(ctx context.Context, w *domain.Wallet) error 
 }
 
 func (r *pgxWalletRepository) FindByID(ctx context.Context, id string) (*domain.Wallet, error) {
-	return nil, nil
+
+	query := `
+		SELECT id, player_id, currency, balance, version, created_at, updated_at
+		FROM wallets
+		WHERE id = $1
+		FOR UPDATE
+	`
+
+	var (
+		wID        string
+		wPlayerID  string
+		wCurrency  string
+		wBalance   int64
+		wVersion   int
+		wCreatedAt time.Time
+		wUpdatedAt time.Time
+	)
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&wID,
+		&wPlayerID,
+		&wCurrency,
+		&wBalance,
+		&wVersion,
+		&wCreatedAt,
+		&wUpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("wallet not found")
+		}
+		return nil, err
+	}
+
+	wallet := domain.RestoreWallet(
+		wID,
+		wPlayerID,
+		wCurrency,
+		wBalance,
+		wVersion,
+		wCreatedAt,
+		wUpdatedAt,
+	)
+
+	return wallet, nil
 }
