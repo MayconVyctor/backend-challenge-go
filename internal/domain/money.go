@@ -70,3 +70,11 @@ func (m Money) Subtract(other Money) (Money, error) {
 		currency: m.currency,
 	}, nil
 }
+
+func (m Money) Amount() int64 {
+	return m.amount
+}
+
+func (m Money) Currency() string {
+	return m.currency
+}
