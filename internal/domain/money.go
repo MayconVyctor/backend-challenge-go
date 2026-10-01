@@ -49,10 +49,24 @@ func (m Money) Add(other Money) (Money, error) {
 		return Money{}, errors.New("currency mismatch")
 	}
 
-	amountSum := money.amount + other.amount
+	amountSum := m.amount + other.amount
 
 	return Money{
 		amount:   amountSum,
-		currency: currency,
+		currency: m.currency,
+	}, nil
+}
+
+func (m Money) Subtract(other Money) (Money, error) {
+
+	if m.currency != other.currency {
+		return Money{}, errors.New("currency mismatch")
+	}
+
+	amountSub := m.amount - other.amount
+
+	return Money{
+		amount:   amountSub,
+		currency: m.currency,
 	}, nil
 }
