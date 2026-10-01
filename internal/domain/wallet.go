@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -62,4 +63,9 @@ func (w *Wallet) Credit(amount Money) error {
 	w.updatedAt = time.Now().UTC()
 
 	return nil
+}
+
+type WalletRepository interface {
+	FindByID(ctx context.Context, id string) (*Wallet, error)
+	Save(ctz context.Context, w *Wallet) error
 }
