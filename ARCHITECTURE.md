@@ -1,39 +1,63 @@
 # Arquitetura e Decisões do Projeto
 
-Este documento detalha as estratégias arquiteturais e os padrões de projeto adotados para garantir que o sistema atenda aos requisitos rigorosos de consistência financeira, idempotência, alta concorrência e tolerância a falhas exigidos pelo domínio de apostas distribuídas.
+Este documento descreve o estado atual da implementação do desafio "Processamento Distribuído de Apostas em Go" e as decisões técnicas de engenharia por trás dele. Ele reflete as abordagens de alta concorrência, consistência financeira e tolerância a falhas implementadas.
 
-## 1. Padrão Arquitetural: Clean Architecture & Uber Fx
-A aplicação foi estruturada baseada nos princípios da **Clean Architecture**, promovendo o isolamento total das regras de negócio (`domain`) de detalhes de I/O, infraestrutura (`infrastructure`) e apresentação HTTP/Mensageria (`presentation`). O domínio não conhece banco de dados, SQS ou Echo.
+## 1. Visão Geral
+O serviço segue os princípios de **Clean Architecture** (Ports & Adapters), garantindo a testabilidade e o isolamento das regras de negócio:
+*   `internal/domain` — Entidades e Value Objects (Money, Wallet, WagerTransaction, LedgerEntry, Eventos). Totalmente livre de frameworks (Fx, HTTP, SQL).
+*   `internal/application` — Casos de uso (UseCases) que orquestram o domínio através de interfaces implementadas pela infraestrutura.
+*   `internal/infrastructure` — Adaptadores concretos: PostgreSQL (repositórios), SQS (consumers/publishers).
+*   `internal/presentation` — Handlers HTTP (Echo) e Middlewares de segurança.
+*   `cmd/api/main.go` — Composição de dependências gerenciada pelo **Uber Fx**.
 
-Para gerenciar a composição de dependências e o ciclo de vida dos processos, adotou-se o **Uber Fx**. Através do `fx.Lifecycle`, garantimos *Graceful Shutdown*: o servidor HTTP web e os *workers* de background (SQS Consumer e Outbox Publisher) são iniciados e encerrados de maneira orquestrada, garantindo que conexões com o banco não sejam cortadas enquanto uma transação financeira está em andamento.
+O **Uber Fx** é utilizado via `fx.Lifecycle`, garantindo *Graceful Shutdown*: o servidor web e os *workers* SQS iniciam (`OnStart`) e encerram (`OnStop`) orquestradamente, não cortando conexões com o banco no meio de transações financeiras críticas.
 
-## 2. Modelagem de Dinheiro (Value Object)
-Para cumprir o requisito estrito de evitar ponto flutuante (`float32`/`float64`), o dinheiro foi modelado como um **Value Object imutável** (`domain.Money`). 
-*   **Representação:** O valor financeiro é trafegado e armazenado como `int64` (representando a menor unidade fracionária da moeda, como centavos).
-*   **Segurança:** Toda a aritmética (soma e subtração) é encapsulada em métodos do domínio que validam *overflow* e checam se as moedas (ex: `BRL` vs `USD`) são idênticas antes de operar, evitando anomalias financeiras.
+## 2. Dinheiro (Value Object)
+Para cumprir o requisito estrito de evitar ponto flutuante (`float32`/`float64`), o dinheiro foi modelado como um **Value Object imutável**.
+*   **Representação:** Trafegado e armazenado internamente como `int64` (representando a menor unidade fracionária da moeda, ex: centavos).
+*   **Segurança Matemática:** Aritmética isolada no domínio que valida inconsistências cambiais antes das operações. 
+*   **Contrato HTTP:** O serviço faz o *parse* adequado das Strings de decimais exigidas pelo desafio (`{"amount":"25.00", "currency":"BRL"}`).
 
-## 3. Controle de Concorrência e Transações Atômicas
-O sistema utiliza o pacote `pgx` para interagir nativamente com o PostgreSQL. A coordenação de concorrência por carteira foi resolvida utilizando **Pessimistic Locking** (`SELECT ... FOR UPDATE`).
-*   **Unit of Work:** Foi implementada uma interface no repositório que aceita *callbacks* (`RunInTransaction`). 
-*   **Atomicidade Absoluta:** O saldo da carteira, a geração do recibo (`WagerTransaction`), o lançamento contábil (`WalletLedgerEntry`) e os eventos de mensageria (`Outbox`) são todos gravados sob o mesmo Lock transacional e o mesmo Contexto de Banco de Dados. Se um erro ocorrer em qualquer etapa, é feito o *Rollback* unificado. Duas requisições simultâneas para a mesma carteira enfileiram no banco, prevenindo o problema de *Lost Updates*.
+## 3. Agregado Wallet e Concorrência Otimizada
+A coordenação de concorrência por carteira foi resolvida utilizando **Pessimistic Locking** (`SELECT ... FOR UPDATE`), orquestrado pelo padrão *Unit of Work*.
+*   **Atomicidade Absoluta (`RunInTransaction`):** A leitura da carteira, a geração do recibo (`WagerTransaction`), o lançamento contábil no ledger (`WalletLedgerEntry`) e os eventos de outbox são todos executados dentro da **mesma transação SQL**.
+*   Se ocorrer qualquer erro (ex: saldo insuficiente), o banco efetua o *Rollback* de tudo. Múltiplas requisições para a mesma carteira são enfileiradas pelo PostgreSQL, exterminando completamente anomalias de atualização perdida (*Lost Updates*).
+*   Foi adotado o uso de `INSERT ... ON CONFLICT (id) DO UPDATE` para otimizar as atualizações no repósitório, salvando *round-trips* no banco.
 
-## 4. Idempotência Persistente e Deduplicação (Inbox Pattern)
-O sistema deve sobreviver a envios duplicados independentemente da via de entrada (HTTP ou SQS).
-*   **No HTTP:** O cabeçalho `Idempotency-Key` é exigido. Antes de processar a aposta, o sistema busca um lock seguro e verifica se a chave já existe no repositório de transações. Caso exista, uma resposta de sucesso simulada (`idempotentReplay: true`) é devolvida imediatamente.
-*   **No SQS (Inbox Pattern):** Para o processamento em background, o sistema extrai o `messageId` original entregue pelo SQS e grava em uma tabela SQL `inbox` atrelada à mesma transação do negócio (usando *Unique Constraints*). Se a AWS re-entregar a mensagem, o banco recusa a duplicação atamicamente.
+## 4. WagerTransaction e Regras de Negócio
+O sistema lida com diferentes *Kinds* orquestrados de forma segura:
+*   **BET/WIN:** Debitam/Creditam o saldo, persistem no Ledger e emitem eventos.
+*   **LOSS:** Validamos que o valor deve ser `0.00`. Ele não afeta o saldo, não emite linha no Ledger nem *WalletBalanceChanged*, mas emite o evento *WagerTransactionProcessed*.
+*   **REFUND/ROLLBACK:** Operações de reversão que buscam a aposta originária via `FindWagerByExternalID` (usando `providerId` + `referenceExternalTransactionId`).
 
-## 5. Garantia de Eventos (Transactional Outbox)
-Para assegurar a entrega *at-least-once* de eventos de negócio (`WalletBalanceChanged`, `WagerTransactionProcessed`) sem o risco de inconsistência (ex: atualizar o banco e o servidor desligar antes de publicar no broker), foi adotado o padrão **Transactional Outbox**.
-Os eventos são serializados em JSON e salvos na tabela `outbox` no status de `PENDING` durante o *commit* bancário. Um processo secundário (`OutboxPublisher`) efetua o *polling* dessa tabela de forma assíncrona para despachar e sinalizar como publicado.
+## 5. Inbox e Outbox (Garantia de Eventos e Mensageria)
+O sistema sobrevive a envios duplicados, independente da via de entrada:
+*   **Deduplicação HTTP:** Requisições via API trazem o `Idempotency-Key`. Se for interceptada uma chave duplicada, simulamos um replay (`idempotentReplay: true`) respondendo com o estado de sucesso.
+*   **Transactional Outbox:** Eventos gerados pelo processamento financeiro (`WalletBalanceChanged`) são persistidos atamicamente na tabela `outbox`. Um *Worker* secundário (`OutboxPublisher`) efetua o polling seguro dessa tabela para despacho sem perda de eventos em crash da aplicação.
+*   **Inbox Pattern (SQS Consumer):** O Worker do AWS SQS captura a mensagem da fila `wager-transactions.fifo` e extrai o `messageId`. Dentro da transação financeira, ele executa um `INSERT ... ON CONFLICT DO NOTHING` na tabela `inbox`. Se o SQS duplicar a entrega da mensagem, o banco rejeita a inserção silenciosamente sem abortar a transação do Postgres, retornando sucesso imediato sem causar efeitos colaterais financeiros.
 
-## 6. Auditoria Financeira e Reconciliação
-Seguindo o padrão de contabilidade de partidas, cada operação que altera o saldo gera um registro imutável no `wallet_ledger` (Append-Only). Operações financeiras de perdas (`LOSS`), que não movimentam fundos reais, geram o recibo final sem criar lançamento contábil "vazio".
-*   **Endpoint de Reconciliação:** O sistema possui uma rota (`/reconciliation`) que varre o ledger de uma carteira desde a sua origem matemática, somando créditos e subtraindo débitos por via do banco, retornando eventuais divergências contra a tabela `wallets` em tempo real.
+## 6. Ledger Imutável e Reconciliação
+Cada movimentação real de fundos grava um registro no `wallet_ledger` (Append-Only), contendo saldos anteriores e posteriores à transação.
+*   **Reconciliação:** A rota `POST /wallets/:walletId/reconciliation` foi desenhada para recalcular iterativamente todo o histórico de transações (`SUM(CREDIT) - SUM(DEBIT)`) e atestar a veracidade do saldo cacheado na tabela `wallets`, emitindo um relatório analítico.
 
-## 7. Autenticação e Segurança
-O serviço foi protegido utilizando a integração com provedores OAuth 2.0/OIDC (recomendado Keycloak). 
-*   Um *Middleware* customizado foi injetado nas rotas do servidor web para interceptar requisições, exigir o *Bearer Token* e processar as assinaturas e *claims* do JWT (como extrair o `providerId` / `clientId`). Com isso, asseguramos o modelo restrito de permissões logo na camada de apresentação.
+## 7. Autenticação e Autorização Segura (Keycloak / OIDC)
+Segurança robusta na camada de Middleware (`KeycloakAuthMiddleware`).
+*   O sistema intercepta o JWT enviado via cabeçalho `Bearer`, decodifica as assinaturas e extrai nativamente *claims* de identidade (como o `providerId` / `clientId`).
+*   Isso consolida as restrições arquiteturais para que parceiros manipulem apenas as carteiras cujas transações são autorizadas pelas políticas do broker (exigência explícita do desafio).
 
-## 8. Limitações e Compromissos (Trade-offs)
-*   **Reversões Assíncronas:** A lógica atual rejeita reversões de transações ainda não processadas. Em um cenário futuro e de escala máxima, uma reversão não identificada poderia ser salva como `PENDING_REFERENCE` no domínio para sofrer retentativas automáticas (*backoff* exponencial).
-*   **Testes de Carga:** Os cenários de paralelismo máximo focaram na integridade e na blindagem de dados pelo PostgreSQL em ambiente local conteinerizado. Um teste de carga mais agressivo (via k6/Gatling) poderia evidenciar a necessidade de otimizar o polling da tabela Outbox (usando `SKIP LOCKED`, por exemplo).
+## 8. Status por Área (Matriz de Requisitos)
+| Requisito do Desafio | Componente/Solução | Status |
+| :--- | :--- | :--- |
+| **Money (Sem floats)** | Value Object, validações de formato e representação `int64`. | ✅ Concluído |
+| **Pessimistic Locking** | `SELECT FOR UPDATE` isolado com injeção de transação no `context.Context`. | ✅ Concluído |
+| **Idempotência (HTTP)** | Proteção por `Idempotency-Key` + Resposta com Replay. | ✅ Concluído |
+| **Reversões (ROLLBACK/REFUND)** | Verificação e estorno validando o `ReferenceExternalTransactionID`. | ✅ Concluído |
+| **Append-Only Ledger** | Lançamentos contábeis imutáveis (`wallet_ledger`). | ✅ Concluído |
+| **Reconciliação** | Endpoint dedicado para auditoria analítica contra corrupção. | ✅ Concluído |
+| **Mensageria (SQS Inbox)** | Deduplicação atômica usando `ON CONFLICT DO NOTHING` para `message_id`. | ✅ Concluído |
+| **Transactional Outbox** | Escrita atômica + Worker assíncrono para publicação de eventos. | ✅ Concluído |
+| **Autenticação (Keycloak)** | Middleware customizado com parse e extração de JWT Claims. | ✅ Concluído |
+
+## 9. Limitações Conhecidas e Trabalhos Futuros
+*   **Retentativas de Reversão (`PENDING_REFERENCE`):** Atualmente, se um `ROLLBACK` chegar *antes* da transação originária (out of order messages), ele é rejeitado. Uma melhoria de engenharia de nível Staff seria modelá-lo como `PENDING_REFERENCE` e rodar um *Background Worker* com *backoff exponencial* que faz polling periódico aguardando a chegada da referência pendente até estourar um *TTL*.
+*   **Desacoplamento de Fila SQS:** O `SQSConsumer` simula localmente a escuta, porém em ambiente Cloud real com altíssima vazão, seria vital ajustar os perfis de concorrência (*MaxNumberOfMessages* e *WaitTimeSeconds* do AWS SDK v2).
