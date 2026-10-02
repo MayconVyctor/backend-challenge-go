@@ -43,6 +43,11 @@ func (h *WalletHandler) ProcessTransaction(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
+	input.IdempotencyKey = c.Request().Header.Get("Idempotency-Key")
+	if input.IdempotencyKey == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Idempotency-Key header is required"})
+	}
+
 	_, err = h.transactionUC.Execute(c.Request().Context(), input)
 	if err != nil {
 		return c.JSON(http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})

@@ -7,10 +7,13 @@ import (
 )
 
 type ProcessTransactionInput struct {
-	PlayerID string
-	Amount   string
-	Currency string
-	Kind     string
+	IdempotencyKey        string
+	ProviderID            string
+	ExternalTransactionID string
+	PlayerID              string
+	Amount                string
+	Currency              string
+	Kind                  string
 }
 
 type TransactionUseCase struct {
