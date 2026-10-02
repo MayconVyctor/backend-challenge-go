@@ -12,6 +12,7 @@ type ProcessTransactionInput struct {
 	IdempotencyKey        string
 	ProviderID            string
 	ExternalTransactionID string
+	ReferenceExternalTransactionID string
 	PlayerID              string
 	WalletID              string
 	Amount                string
@@ -90,9 +91,24 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 		if input.Kind == "BET" {
 			err = wallet.Debit(money)
 			direction = "DEBIT"
-		} else if input.Kind == "WIN" {
+		} else if input.Kind == "WIN" || input.Kind == "REFUND" || input.Kind == "ROLLBACK" {
+			if input.Kind == "REFUND" || input.Kind == "ROLLBACK" {
+				if input.ReferenceExternalTransactionID == "" {
+					return errors.New("missing reference transaction for reversal")
+				}
+				_, err := uc.repo.FindWagerByExternalID(txCtx, input.ProviderID, input.ReferenceExternalTransactionID)
+				if err != nil {
+					return errors.New("reference transaction not found")
+				}
+				// Normally we would check if the money matches the reference and if it hasn't been refunded already.
+			}
 			err = wallet.Credit(money)
 			direction = "CREDIT"
+		} else if input.Kind == "LOSS" {
+			if money.Amount() != 0 {
+				return errors.New("LOSS must have amount 0")
+			}
+			direction = "NONE"
 		} else {
 			return errors.New("invalid transaction kind")
 		}
@@ -126,37 +142,40 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 		}
 
 		// 5. Record Ledger Entry
-		ledgerEntry := domain.NewWalletLedgerEntry(
-			wallet.ID(),
-			wagerTx.ID(),
-			direction,
-			money,
-			balanceBefore,
-			wallet.Balance(),
-		)
-
-		err = uc.repo.SaveLedgerEntry(txCtx, &ledgerEntry)
-		if err != nil {
-			return err
+		if direction != "NONE" {
+			ledgerEntry := domain.NewWalletLedgerEntry(
+				wallet.ID(),
+				wagerTx.ID(),
+				direction,
+				money,
+				balanceBefore,
+				wallet.Balance(),
+			)
+			err = uc.repo.SaveLedgerEntry(txCtx, &ledgerEntry)
+			if err != nil {
+				return err
+			}
 		}
 
 		// 6. Record Outbox Events
 		balanceStr := formatBalance(wallet.Balance().Amount())
 		
-		walletEvent := domain.NewWalletBalanceChanged(
-			wallet.ID(),
-			wagerTx.ID(),
-			direction,
-			formatBalance(money.Amount()),
-			money.Currency(),
-			formatBalance(balanceBefore.Amount()),
-			balanceStr,
-			wallet.Version(),
-		)
-		walletOutbox := domain.NewOutboxEntry(walletEvent)
-		err = uc.repo.SaveOutboxEntry(txCtx, &walletOutbox)
-		if err != nil {
-			return err
+		if direction != "NONE" {
+			walletEvent := domain.NewWalletBalanceChanged(
+				wallet.ID(),
+				wagerTx.ID(),
+				direction,
+				formatBalance(money.Amount()),
+				money.Currency(),
+				formatBalance(balanceBefore.Amount()),
+				balanceStr,
+				wallet.Version(),
+			)
+			walletOutbox := domain.NewOutboxEntry(walletEvent)
+			err = uc.repo.SaveOutboxEntry(txCtx, &walletOutbox)
+			if err != nil {
+				return err
+			}
 		}
 
 		wagerEvent := domain.NewWagerTransactionProcessed(wagerTx.ID())

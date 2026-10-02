@@ -11,12 +11,14 @@ import (
 type WalletHandler struct {
 	createWalletUC *application.CreateWalletUseCase
 	transactionUC  *application.TransactionUseCase
+	reconciliationUC *application.ReconciliationUseCase
 }
 
-func NewWalletHandler(createUC *application.CreateWalletUseCase, transUC *application.TransactionUseCase) *WalletHandler {
+func NewWalletHandler(createUC *application.CreateWalletUseCase, transUC *application.TransactionUseCase, reconUC *application.ReconciliationUseCase) *WalletHandler {
 	return &WalletHandler{
 		createWalletUC: createUC,
 		transactionUC:  transUC,
+		reconciliationUC: reconUC,
 	}
 }
 
@@ -75,6 +77,7 @@ func formatBalance(amount int64) string {
 type processTransactionRequest struct {
 	ProviderID            string `json:"providerId"`
 	ExternalTransactionID string `json:"externalTransactionId"`
+	ReferenceExternalTransactionID string `json:"referenceExternalTransactionId,omitempty"`
 	PlayerID              string `json:"playerId"`
 	WalletID              string `json:"walletId"`
 	Kind                  string `json:"kind"`
@@ -101,6 +104,7 @@ func (h *WalletHandler) ProcessTransaction(c echo.Context) error {
 		IdempotencyKey:        idempotencyKey,
 		ProviderID:            req.ProviderID,
 		ExternalTransactionID: req.ExternalTransactionID,
+		ReferenceExternalTransactionID: req.ReferenceExternalTransactionID,
 		PlayerID:              req.PlayerID,
 		WalletID:              req.WalletID,
 		Kind:                  req.Kind,
@@ -138,4 +142,18 @@ func (h *WalletHandler) ProcessTransaction(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "transaction processed successfully",
 	})
+}
+
+
+func (h *WalletHandler) Reconcile(c echo.Context) error {
+	walletId := c.Param("walletId")
+	if walletId == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "walletId path parameter is required"})
+	}
+
+	output, err := h.reconciliationUC.Execute(c.Request().Context(), walletId)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, output)
 }

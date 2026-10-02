@@ -77,6 +77,8 @@ type WalletRepository interface {
 	SaveOutboxEntry(ctx context.Context, entry *OutboxEntry) error
 	HasInboxMessage(ctx context.Context, consumerName, messageId string) (bool, error)
 	SaveInboxMessage(ctx context.Context, consumerName, messageId string) error
+	FindWagerByExternalID(ctx context.Context, providerID, externalTxID string) (*WagerTransaction, error)
+	GetLedgerBalanceAndCount(ctx context.Context, walletID string) (int64, int, error)
 }
 
 func RestoreWallet(id string, playerId string, currency string, balanceAmount int64, version int, createdAt time.Time, updatedAt time.Time) *Wallet {
