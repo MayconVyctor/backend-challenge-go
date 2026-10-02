@@ -11,7 +11,12 @@ import (
 
 func NewDatabasePool(lc fx.Lifecycle) *pgxpool.Pool {
 
-	dbUrl := "postgres://jungle:jungle123@localhost:5432/walletdb?sslmode=disable"
+	dbUrl := os.Getenv("DB_URL")
+
+	if err := RunMigrations(dbUrl); err != nil {
+		fmt.Fprintf(os.Stderr, "Migration failure: %v\n", err)
+		os.Exit(1)
+	}
 
 	pool, err := pgxpool.New(context.Background(), dbUrl)
 	if err != nil {
