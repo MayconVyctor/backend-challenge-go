@@ -26,6 +26,14 @@ func NewTransactionUseCase(repo domain.WalletRepository) *TransactionUseCase {
 
 func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransactionInput) (*domain.Wallet, error) {
 
+	exists, err := uc.repo.HasIdempotencyKey(ctx, input.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return uc.repo.FindByID(ctx, input.PlayerID)
+	}
+
 	money, err := domain.NewMoneyFromString(input.Amount, input.Currency)
 	if err != nil {
 		return nil, err
