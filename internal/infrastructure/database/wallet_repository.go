@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type txKey struct{}
+
 type pgxWalletRepository struct {
 	db *pgxpool.Pool
 }
@@ -25,7 +27,7 @@ func NewPgxWalletRepository(db *pgxpool.Pool) domain.WalletRepository {
 }
 
 func (r *pgxWalletRepository) getQueryEngine(ctx context.Context) QueryEngine {
-	tx, ok := ctx.Value("tx").(pgx.Tx)
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
 	if ok {
 		return tx
 	}
@@ -38,7 +40,7 @@ func (r *pgxWalletRepository) RunInTransaction(ctx context.Context, fn func(txCt
 		return err
 	}
 
-	txCtx := context.WithValue(ctx, "tx", tx)
+	txCtx := context.WithValue(ctx, txKey{}, tx)
 
 	if err := fn(txCtx); err != nil {
 		tx.Rollback(ctx)
@@ -52,8 +54,12 @@ func (r *pgxWalletRepository) Save(ctx context.Context, w *domain.Wallet) error 
 	query := `
 		INSERT INTO wallets (id, player_id, currency, balance, version, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (id) DO UPDATE 
+		SET balance = EXCLUDED.balance,
+		    version = EXCLUDED.version,
+		    updated_at = EXCLUDED.updated_at
 	`
-	_, err := r.db.Exec(ctx, query,
+	_, err := r.getQueryEngine(ctx).Exec(ctx, query,
 		w.ID(),
 		w.PlayerID(),
 		w.Currency(),
@@ -85,7 +91,7 @@ func (r *pgxWalletRepository) FindByID(ctx context.Context, id string) (*domain.
 		wUpdatedAt time.Time
 	)
 
-	err := r.db.QueryRow(ctx, query, id).Scan(
+	err := r.getQueryEngine(ctx).QueryRow(ctx, query, id).Scan(
 		&wID,
 		&wPlayerID,
 		&wCurrency,
@@ -120,10 +126,49 @@ func (r *pgxWalletRepository) HasIdempotencyKey(ctx context.Context, key string)
 
 	query := `SELECT EXISTS(SELECT 1 FROM wager_transactions WHERE idempotency_key = $1)`
 
-	err := r.db.QueryRow(ctx, query, key).Scan(&exists)
+	err := r.getQueryEngine(ctx).QueryRow(ctx, query, key).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
 
 	return exists, nil
+}
+
+func (r *pgxWalletRepository) SaveWagerTransaction(ctx context.Context, tx *domain.WagerTransaction) error {
+	query := `
+		INSERT INTO wager_transactions (id, provider_id, external_transaction_id, idempotency_key, wallet_id, player_id, kind, amount, currency, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`
+	_, err := r.getQueryEngine(ctx).Exec(ctx, query,
+		tx.ID(),
+		tx.ProviderID(),
+		tx.ExternalTransactionID(),
+		tx.IdempotencyKey(),
+		tx.WalletID(),
+		tx.PlayerID(),
+		tx.Kind(),
+		tx.Amount().Amount(),
+		tx.Amount().Currency(),
+		tx.Status(),
+		tx.CreatedAt(),
+	)
+	return err
+}
+
+func (r *pgxWalletRepository) SaveLedgerEntry(ctx context.Context, entry *domain.WalletLedgerEntry) error {
+	query := `
+		INSERT INTO wallet_ledger (id, wallet_id, transaction_id, direction, amount, balance_before, balance_after, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+	_, err := r.getQueryEngine(ctx).Exec(ctx, query,
+		entry.ID(),
+		entry.WalletID(),
+		entry.TransactionID(),
+		entry.Direction(),
+		entry.Amount().Amount(),
+		entry.BalanceBefore().Amount(),
+		entry.BalanceAfter().Amount(),
+		entry.CreatedAt(),
+	)
+	return err
 }

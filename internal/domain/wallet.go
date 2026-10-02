@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Wallet struct {
@@ -23,7 +25,7 @@ func NewWallet(playerId string, initialBalance Money) (Wallet, error) {
 	}
 
 	return Wallet{
-		id:        "temp-id-123",
+		id:        uuid.New().String(),
 		playerId:  playerId,
 		currency:  initialBalance.currency,
 		balance:   initialBalance,
@@ -70,6 +72,8 @@ type WalletRepository interface {
 	Save(ctx context.Context, w *Wallet) error
 	HasIdempotencyKey(ctx context.Context, key string) (bool, error)
 	RunInTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
+	SaveWagerTransaction(ctx context.Context, tx *WagerTransaction) error
+	SaveLedgerEntry(ctx context.Context, entry *WalletLedgerEntry) error
 }
 
 func RestoreWallet(id string, playerId string, currency string, balanceAmount int64, version int, createdAt time.Time, updatedAt time.Time) *Wallet {
