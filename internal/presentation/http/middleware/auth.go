@@ -33,7 +33,6 @@ func KeycloakAuthMiddleware() echo.MiddlewareFunc {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid token json"})
 			}
 
-			// Store clientId (or whatever Keycloak maps to providerId) in context
 			if clientId, ok := claims["clientId"].(string); ok {
 				c.Set("providerId", clientId)
 			} else if azp, ok := claims["azp"].(string); ok {

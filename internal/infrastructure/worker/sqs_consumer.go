@@ -40,7 +40,6 @@ func (c *SQSConsumer) Start(ctx context.Context) {
 				log.Println("SQSConsumer shutting down...")
 				return
 			default:
-				// Simplified polling logic
 				messages, err := c.client.ReceiveMessages(ctx)
 				if err != nil {
 					log.Printf("Error receiving SQS messages: %v", err)
@@ -91,14 +90,11 @@ func (c *SQSConsumer) processMessage(ctx context.Context, msg SQSMessage) {
 		Currency:              payload.Data.Money.Currency,
 	}
 
-	// This reuses exactly the same logic, locks, and inbox deduplication!
 	_, err := c.uc.Execute(ctx, input)
 	if err != nil {
 		log.Printf("Error processing message %s: %v", msg.MessageID, err)
-		// Usually we wouldn't delete so it can be retried or sent to DLQ
 		return
 	}
 
 	fmt.Printf("Successfully processed message %s\n", msg.MessageID)
-	// c.client.DeleteMessage(ctx, msg.ReceiptHandle)
 }

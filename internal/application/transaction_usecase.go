@@ -48,7 +48,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 
 	err = uc.repo.RunInTransaction(ctx, func(txCtx context.Context) error {
 
-		// 1. Check Inbox for SQS deduplication
 		if input.MessageID != "" && input.ConsumerName != "" {
 			inboxExists, err := uc.repo.HasInboxMessage(txCtx, input.ConsumerName, input.MessageID)
 			if err != nil {
@@ -59,7 +58,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			}
 		}
 
-		// 2. Check Idempotency Key
 		exists, err := uc.repo.HasIdempotencyKey(txCtx, input.IdempotencyKey)
 		if err != nil {
 			return err
@@ -80,7 +78,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return nil
 		}
 
-		// 3. Update Wallet Balance
 		wallet, err := uc.repo.FindByID(txCtx, input.WalletID)
 		if err != nil {
 			return err
@@ -101,7 +98,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 				if err != nil {
 					return errors.New("reference transaction not found")
 				}
-				// Normally we would check if the money matches the reference and if it hasn't been refunded already.
 			}
 			err = wallet.Credit(money)
 			direction = "CREDIT"
@@ -123,7 +119,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
-		// 4. Record Wager Transaction
 		wagerTx, err := domain.NewWagerTransaction(
 			input.ProviderID,
 			input.ExternalTransactionID,
@@ -142,7 +137,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
-		// 5. Record Ledger Entry
 		if direction != "NONE" {
 			ledgerEntry := domain.NewWalletLedgerEntry(
 				wallet.ID(),
@@ -158,7 +152,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			}
 		}
 
-		// 6. Record Outbox Events
 		balanceStr := formatBalance(wallet.Balance().Amount())
 		
 		if direction != "NONE" {
@@ -186,7 +179,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
-		// 7. Save Inbox Message if SQS
 		if input.MessageID != "" && input.ConsumerName != "" {
 			err = uc.repo.SaveInboxMessage(txCtx, input.ConsumerName, input.MessageID)
 			if err != nil {

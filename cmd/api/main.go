@@ -22,7 +22,6 @@ func main() {
 			httpPresentation.NewWalletHandler,
 			httpPresentation.NewHTTPServer,
 			
-			// Mock SQS client for DI
 			func() worker.SQSClient { return nil },
 			worker.NewSQSConsumer,
 			worker.NewOutboxPublisher,

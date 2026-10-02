@@ -34,7 +34,6 @@ func NewOutboxEntry(event Event) OutboxEntry {
 	}
 }
 
-// WalletBalanceChanged Event
 type WalletBalanceChanged struct {
 	ID            string
 	Type          string
@@ -73,7 +72,6 @@ func (e WalletBalanceChanged) Payload() []byte {
 	return bytes
 }
 
-// WagerTransactionProcessed Event
 type WagerTransactionProcessed struct {
 	ID            string
 	Type          string
