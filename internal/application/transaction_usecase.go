@@ -26,42 +26,56 @@ func NewTransactionUseCase(repo domain.WalletRepository) *TransactionUseCase {
 
 func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransactionInput) (*domain.Wallet, error) {
 
-	exists, err := uc.repo.HasIdempotencyKey(ctx, input.IdempotencyKey)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return uc.repo.FindByID(ctx, input.PlayerID)
-	}
+	var finalWallet *domain.Wallet
 
 	money, err := domain.NewMoneyFromString(input.Amount, input.Currency)
 	if err != nil {
 		return nil, err
 	}
 
-	wallet, err := uc.repo.FindByID(ctx, input.PlayerID)
+	err = uc.repo.RunInTransaction(ctx, func(txCtx context.Context) error {
+
+		exists, err := uc.repo.HasIdempotencyKey(txCtx, input.IdempotencyKey)
+		if err != nil {
+			return err
+		}
+		if exists {
+			finalWallet, err = uc.repo.FindByID(txCtx, input.PlayerID)
+			return err
+		}
+
+		wallet, err := uc.repo.FindByID(txCtx, input.PlayerID)
+		if err != nil {
+			return err
+		}
+
+		if input.Kind == "BET" {
+			err = wallet.Debit(money)
+			if err != nil {
+				return err
+			}
+		} else if input.Kind == "WIN" {
+			err = wallet.Credit(money)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.New("invalid transaction kind")
+		}
+
+		err = uc.repo.Save(txCtx, wallet)
+		if err != nil {
+			return err
+		}
+
+		finalWallet = wallet
+
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	if input.Kind == "BET" {
-		err = wallet.Debit(money)
-		if err != nil {
-			return nil, err
-		}
-	} else if input.Kind == "WIN" {
-		err = wallet.Credit(money)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, errors.New("invalid transaction kind")
-	}
-
-	err = uc.repo.Save(ctx, wallet)
-	if err != nil {
-		return nil, err
-	}
-
-	return wallet, nil
+	return finalWallet, nil
 }
