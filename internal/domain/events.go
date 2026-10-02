@@ -30,7 +30,7 @@ func NewOutboxEntry(event Event) OutboxEntry {
 		AggregateID: event.AggregateID(),
 		Payload:     event.Payload(),
 		Status:      "PENDING",
-		CreatedAt:   time.Time{}, // handled by DB default or set explicitly
+		CreatedAt:   time.Time{},
 	}
 }
 

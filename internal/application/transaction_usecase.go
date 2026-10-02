@@ -3,22 +3,22 @@ package application
 import (
 	"backend-challenge-go/internal/domain"
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
 )
 
 type ProcessTransactionInput struct {
-	MessageID             string
-	ConsumerName          string
-	IdempotencyKey        string
-	ProviderID            string
-	ExternalTransactionID string
+	MessageID                      string
+	ConsumerName                   string
+	IdempotencyKey                 string
+	ProviderID                     string
+	ExternalTransactionID          string
 	ReferenceExternalTransactionID string
-	PlayerID              string
-	WalletID              string
-	Amount                string
-	Currency              string
-	Kind                  string
+	PlayerID                       string
+	WalletID                       string
+	Amount                         string
+	Currency                       string
+	Kind                           string
 }
 
 type TransactionUseCase struct {
@@ -49,12 +49,12 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 	err = uc.repo.RunInTransaction(ctx, func(txCtx context.Context) error {
 
 		if input.MessageID != "" && input.ConsumerName != "" {
-			inboxExists, err := uc.repo.HasInboxMessage(txCtx, input.ConsumerName, input.MessageID)
+			acquired, err := uc.repo.TryAcquireInboxMessage(txCtx, input.ConsumerName, input.MessageID)
 			if err != nil {
 				return err
 			}
-			if inboxExists {
-				return nil // already processed, early return successfully
+			if !acquired {
+				return nil
 			}
 		}
 
@@ -153,7 +153,7 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 		}
 
 		balanceStr := formatBalance(wallet.Balance().Amount())
-		
+
 		if direction != "NONE" {
 			walletEvent := domain.NewWalletBalanceChanged(
 				wallet.ID(),
@@ -179,8 +179,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
-
-
 		output = ProcessTransactionOutput{
 			TransactionID:    wagerTx.ID(),
 			Status:           wagerTx.Status(),
@@ -198,7 +196,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 
 	return output, nil
 }
-
 
 func formatBalance(amount int64) string {
 	return fmt.Sprintf("%d.%02d", amount/100, amount%100)
