@@ -1,0 +1,52 @@
+package application
+
+import (
+	"backend-challenge-go/internal/domain"
+	"context"
+	"errors"
+)
+
+type ProcessTransactionInput struct {
+	PlayerID string
+	Amount   string
+	Currency string
+	Kind     string
+}
+
+type TransactionUseCase struct {
+	repo domain.WalletRepository
+}
+
+func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransactionInput) (*domain.Wallet, error) {
+
+	money, err := domain.NewMoneyFromString(input.Amount, input.Currency)
+	if err != nil {
+		return nil, err
+	}
+
+	wallet, err := uc.repo.FindByID(ctx, input.PlayerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.Kind == "BET" {
+		err = wallet.Debit(money)
+		if err != nil {
+			return nil, err
+		}
+	} else if input.Kind == "WIN" {
+		err = wallet.Credit(money)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, errors.New("invalid transaction kind")
+	}
+
+	err = uc.repo.Save(ctx, wallet)
+	if err != nil {
+		return nil, err
+	}
+
+	return wallet, nil
+}
