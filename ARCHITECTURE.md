@@ -1,6 +1,6 @@
-# Arquitetura e Decisões do Projeto
+# Arquitetura e decisões do projeto
 
-Este documento descreve o estado atual da implementação do desafio "Processamento Distribuído de Apostas em Go" e as decisões técnicas de engenharia por trás dele. Ele reflete as abordagens de alta concorrência, consistência financeira e tolerância a falhas implementadas.
+Este documento descreve o estado atual da implementação do desafio "Processamento Distribuído de Apostas em Go" e as decisões técnicas por trás dele. Ele reflete as abordagens de alta concorrência, consistência financeira e tolerância a falhas implementadas.
 
 ## 1. Visão Geral
 O serviço segue os princípios de **Clean Architecture** (Ports & Adapters), garantindo a testabilidade e o isolamento das regras de negócio:
@@ -41,9 +41,9 @@ Cada movimentação real de fundos grava um registro no `wallet_ledger` (Append-
 *   **Reconciliação:** A rota `POST /wallets/:walletId/reconciliation` foi desenhada para recalcular iterativamente todo o histórico de transações (`SUM(CREDIT) - SUM(DEBIT)`) e atestar a veracidade do saldo cacheado na tabela `wallets`, emitindo um relatório analítico.
 
 ## 7. Autenticação e Autorização Segura (Keycloak / OIDC)
-Segurança robusta na camada de Middleware (`KeycloakAuthMiddleware`).
+Segurança na camada de Middleware (`KeycloakAuthMiddleware`).
 *   O sistema intercepta o JWT enviado via cabeçalho `Bearer`, decodifica as assinaturas e extrai nativamente *claims* de identidade (como o `providerId` / `clientId`).
-*   Isso consolida as restrições arquiteturais para que parceiros manipulem apenas as carteiras cujas transações são autorizadas pelas políticas do broker (exigência explícita do desafio).
+*   Isso consolida as restrições arquiteturais para que parceiros manipulem apenas as carteiras cujas transações são autorizadas pelas políticas do broker.
 
 ## 8. Status por Área (Matriz de Requisitos)
 | Requisito do Desafio | Componente/Solução | Status |
@@ -59,5 +59,5 @@ Segurança robusta na camada de Middleware (`KeycloakAuthMiddleware`).
 | **Autenticação (Keycloak)** | Middleware customizado com parse e extração de JWT Claims. | ✅ Concluído |
 
 ## 9. Limitações Conhecidas e Trabalhos Futuros
-*   **Retentativas de Reversão (`PENDING_REFERENCE`):** Atualmente, se um `ROLLBACK` chegar *antes* da transação originária (out of order messages), ele é rejeitado. Uma melhoria de engenharia de nível Staff seria modelá-lo como `PENDING_REFERENCE` e rodar um *Background Worker* com *backoff exponencial* que faz polling periódico aguardando a chegada da referência pendente até estourar um *TTL*.
-*   **Desacoplamento de Fila SQS:** O `SQSConsumer` simula localmente a escuta, porém em ambiente Cloud real com altíssima vazão, seria vital ajustar os perfis de concorrência (*MaxNumberOfMessages* e *WaitTimeSeconds* do AWS SDK v2).
+*   **Retentativas de Reversão (`PENDING_REFERENCE`):** Atualmente, se um `ROLLBACK` chegar *antes* da transação originária (out of order messages), ele é rejeitado. Uma melhoria seria modelá-lo como `PENDING_REFERENCE` e rodar um *Background Worker* com *backoff exponencial* que faz polling periódico aguardando a chegada da referência pendente até estourar um *TTL*.
+*   **Desacoplamento de Fila SQS:** O `SQSConsumer` simula localmente a escuta, porém em ambiente Cloud real seria vital ajustar os perfis de concorrência (*MaxNumberOfMessages* e *WaitTimeSeconds* do AWS SDK v2).

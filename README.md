@@ -1,8 +1,8 @@
 # Backend Challenge Go - Apostas Distribuídas
 
-Este projeto é a resolução do desafio técnico de engenharia de software para processamento distribuído de operações financeiras. A aplicação assegura consistência absoluta de saldo, idempotência, e entrega garantida de eventos em cenários de extrema concorrência e falhas de rede.
+Este projeto é a resolução do desafio técnico para processamento distribuído de operações financeiras. A aplicação assegura consistência absoluta de saldo, idempotência, e entrega garantida de eventos em cenários de extrema concorrência e falhas de rede.
 
-## 🏗 Arquitetura e Fluxo de Dados (Pessimistic Locking & Outbox)
+##  Arquitetura e Fluxo de Dados (Pessimistic Locking & Outbox)
 
 A aplicação foi projetada em **Clean Architecture** com **Uber Fx** e gerencia simultaneamente tráfego HTTP e filas SQS, unificados na mesma transação atômica (`Unit of Work`).
 
@@ -31,7 +31,7 @@ sequenceDiagram
     Outbox->>DB: Marca como Processado
 ```
 
-## 🚀 Como Rodar o Projeto
+## Como Rodar o Projeto
 
 Toda a orquestração de dependências (PostgreSQL, LocalStack, Keycloak) está encapsulada no Docker Compose.
 
@@ -43,11 +43,11 @@ docker-compose up --build -d
 docker-compose logs -f api
 ```
 
-## 🧪 Logs de Testes e Validação de Concorrência
+##  Logs de Testes e Validação de Concorrência
 
 Durante a etapa de QA, o sistema foi submetido a baterias de testes focadas em **Race Conditions**. O *Pessimistic Locking* do Postgres garantiu que, mesmo recebendo 100 requisições simultâneas de débito para a mesma carteira, nenhuma atualização fosse perdida (*Lost Update*).
 
-**Simulação de Teste de Carga (Estresse):**
+**Simulação de Teste de Carga:**
 ```text
 === RUN   TestConcurrentTransactions_100_Requests
     transaction_usecase_test.go:42: Disparando 100 requisições concorrentes (Goroutines)...
@@ -59,14 +59,10 @@ Durante a etapa de QA, o sistema foi submetido a baterias de testes focadas em *
 PASS
 ```
 
-## 🔍 Reconciliação Financeira (Prova Real)
+##  Reconciliação Financeira 
 
 O sistema possui uma rota de auditoria analítica que varre o *Ledger* (Livro-Razão) e cruza com a tabela transacional de carteiras. Abaixo está o formato validado via Postman.
 
-*(Você pode adicionar prints reais do Postman abaixo)*
-> ![Postman - Reconciliação](./docs/postman-reconciliation.png)
-
-**Exemplo de Resposta (Consistente):**
 ```json
 {
   "walletId": "123e4567-e89b-12d3-a456-426614174000",
@@ -78,13 +74,11 @@ O sistema possui uma rota de auditoria analítica que varre o *Ledger* (Livro-Ra
 }
 ```
 
-## 🔐 Autenticação (Keycloak)
+##  Autenticação (Keycloak)
 Todas as rotas financeiras exigem o envio do Token JWT gerado pelo provedor de identidade.
 
-*(Adicione o print do seu token JWT sendo recebido no Header aqui)*
-> ![Postman - JWT Auth](./docs/postman-auth.png)
 
-## 📖 Documentação Completa
+##  Documentação Completa
 Para detalhes granulares sobre a modelagem financeira sem floats, deduplicação no Inbox, e decisões técnicas, acesse a documentação arquitetural dedicada:
-👉 [**ARCHITECTURE.md**](./ARCHITECTURE.md)
+[**ARCHITECTURE.md**](./ARCHITECTURE.md)
 EOF
