@@ -17,6 +17,10 @@ type TransactionUseCase struct {
 	repo domain.WalletRepository
 }
 
+func NewTransactionUseCase(repo domain.WalletRepository) *TransactionUseCase {
+	return &TransactionUseCase{repo: repo}
+}
+
 func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransactionInput) (*domain.Wallet, error) {
 
 	money, err := domain.NewMoneyFromString(input.Amount, input.Currency)
