@@ -84,3 +84,16 @@ func (r *pgxWalletRepository) FindByID(ctx context.Context, id string) (*domain.
 
 	return wallet, nil
 }
+
+func (r *pgxWalletRepository) HasIdempotencyKey(ctx context.Context, key string) (bool, error) {
+	var exists bool
+
+	query := `SELECT EXISTS(SELECT 1 FROM wager_transactions WHERE idempotency_key = $1)`
+
+	err := r.db.QueryRow(ctx, query, key).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
