@@ -53,3 +53,8 @@ func (uc *ReconciliationUseCase) Execute(ctx context.Context, walletID string) (
 
 	return output, err
 }
+
+// duplicated here for simplicity, in a real app this goes to domain/money.go
+func formatBalance(amount int64) string {
+	return fmt.Sprintf("%d.%02d", amount/100, amount%100)
+}

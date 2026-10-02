@@ -3,6 +3,7 @@ package application
 import (
 	"backend-challenge-go/internal/domain"
 	"context"
+	"fmt"
 	"errors"
 )
 
@@ -211,7 +212,6 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 	return output, nil
 }
 
-import "fmt"
 
 func formatBalance(amount int64) string {
 	return fmt.Sprintf("%d.%02d", amount/100, amount%100)
