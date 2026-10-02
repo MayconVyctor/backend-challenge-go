@@ -67,7 +67,7 @@ func (w *Wallet) Credit(amount Money) error {
 
 type WalletRepository interface {
 	FindByID(ctx context.Context, id string) (*Wallet, error)
-	Save(ctz context.Context, w *Wallet) error
+	Save(ctx context.Context, w *Wallet) error
 }
 
 func RestoreWallet(id string, playerId string, currency string, balanceAmount int64, version int, createdAt time.Time, updatedAt time.Time) *Wallet {
