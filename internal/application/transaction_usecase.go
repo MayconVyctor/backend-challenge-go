@@ -7,6 +7,8 @@ import (
 )
 
 type ProcessTransactionInput struct {
+	MessageID             string
+	ConsumerName          string
 	IdempotencyKey        string
 	ProviderID            string
 	ExternalTransactionID string
@@ -44,23 +46,30 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 
 	err = uc.repo.RunInTransaction(ctx, func(txCtx context.Context) error {
 
+		// 1. Check Inbox for SQS deduplication
+		if input.MessageID != "" && input.ConsumerName != "" {
+			inboxExists, err := uc.repo.HasInboxMessage(txCtx, input.ConsumerName, input.MessageID)
+			if err != nil {
+				return err
+			}
+			if inboxExists {
+				return nil // already processed, early return successfully
+			}
+		}
+
+		// 2. Check Idempotency Key
 		exists, err := uc.repo.HasIdempotencyKey(txCtx, input.IdempotencyKey)
 		if err != nil {
 			return err
 		}
 		if exists {
-			// For now, if idempotency key exists, we just fetch the wallet to return its balance.
-			// Ideally, we should fetch the exact transaction and verify the payload hash as per the challenge.
 			wallet, err := uc.repo.FindByID(txCtx, input.WalletID)
 			if err != nil {
 				return err
 			}
-			
-			// Format balance to string (e.g., 25.00)
 			balanceStr := formatBalance(wallet.Balance().Amount())
-			
 			output = ProcessTransactionOutput{
-				TransactionID:    "existing-tx-id", // Placeholder
+				TransactionID:    "existing-tx-id",
 				Status:           "PROCESSED",
 				Balance:          balanceStr,
 				Currency:         wallet.Currency(),
@@ -69,6 +78,7 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return nil
 		}
 
+		// 3. Update Wallet Balance
 		wallet, err := uc.repo.FindByID(txCtx, input.WalletID)
 		if err != nil {
 			return err
@@ -96,6 +106,7 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
+		// 4. Record Wager Transaction
 		wagerTx, err := domain.NewWagerTransaction(
 			input.ProviderID,
 			input.ExternalTransactionID,
@@ -114,6 +125,7 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
+		// 5. Record Ledger Entry
 		ledgerEntry := domain.NewWalletLedgerEntry(
 			wallet.ID(),
 			wagerTx.ID(),
@@ -128,7 +140,39 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
+		// 6. Record Outbox Events
 		balanceStr := formatBalance(wallet.Balance().Amount())
+		
+		walletEvent := domain.NewWalletBalanceChanged(
+			wallet.ID(),
+			wagerTx.ID(),
+			direction,
+			formatBalance(money.Amount()),
+			money.Currency(),
+			formatBalance(balanceBefore.Amount()),
+			balanceStr,
+			wallet.Version(),
+		)
+		walletOutbox := domain.NewOutboxEntry(walletEvent)
+		err = uc.repo.SaveOutboxEntry(txCtx, &walletOutbox)
+		if err != nil {
+			return err
+		}
+
+		wagerEvent := domain.NewWagerTransactionProcessed(wagerTx.ID())
+		wagerOutbox := domain.NewOutboxEntry(wagerEvent)
+		err = uc.repo.SaveOutboxEntry(txCtx, &wagerOutbox)
+		if err != nil {
+			return err
+		}
+
+		// 7. Save Inbox Message if SQS
+		if input.MessageID != "" && input.ConsumerName != "" {
+			err = uc.repo.SaveInboxMessage(txCtx, input.ConsumerName, input.MessageID)
+			if err != nil {
+				return err
+			}
+		}
 
 		output = ProcessTransactionOutput{
 			TransactionID:    wagerTx.ID(),

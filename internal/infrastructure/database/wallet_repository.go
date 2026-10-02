@@ -172,3 +172,31 @@ func (r *pgxWalletRepository) SaveLedgerEntry(ctx context.Context, entry *domain
 	)
 	return err
 }
+
+func (r *pgxWalletRepository) SaveOutboxEntry(ctx context.Context, entry *domain.OutboxEntry) error {
+	query := `
+		INSERT INTO outbox (event_id, event_type, aggregate_id, payload, status)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+	_, err := r.getQueryEngine(ctx).Exec(ctx, query,
+		entry.EventID,
+		entry.EventType,
+		entry.AggregateID,
+		entry.Payload,
+		entry.Status,
+	)
+	return err
+}
+
+func (r *pgxWalletRepository) HasInboxMessage(ctx context.Context, consumerName, messageId string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM inbox WHERE consumer_name = $1 AND message_id = $2)`
+	err := r.getQueryEngine(ctx).QueryRow(ctx, query, consumerName, messageId).Scan(&exists)
+	return exists, err
+}
+
+func (r *pgxWalletRepository) SaveInboxMessage(ctx context.Context, consumerName, messageId string) error {
+	query := `INSERT INTO inbox (id, consumer_name, message_id) VALUES ($1, $2, $3)`
+	_, err := r.getQueryEngine(ctx).Exec(ctx, query, uuid.New().String(), consumerName, messageId)
+	return err
+}
