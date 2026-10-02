@@ -190,18 +190,9 @@ func (r *pgxWalletRepository) SaveOutboxEntry(ctx context.Context, entry *domain
 	return err
 }
 
-func (r *pgxWalletRepository) HasInboxMessage(ctx context.Context, consumerName, messageId string) (bool, error) {
-	var exists bool
-	query := `SELECT EXISTS(SELECT 1 FROM inbox WHERE consumer_name = $1 AND message_id = $2)`
-	err := r.getQueryEngine(ctx).QueryRow(ctx, query, consumerName, messageId).Scan(&exists)
-	return exists, err
-}
 
-func (r *pgxWalletRepository) SaveInboxMessage(ctx context.Context, consumerName, messageId string) error {
-	query := `INSERT INTO inbox (id, consumer_name, message_id) VALUES ($1, $2, $3)`
-	_, err := r.getQueryEngine(ctx).Exec(ctx, query, uuid.New().String(), consumerName, messageId)
-	return err
-}
+
+
 
 func (r *pgxWalletRepository) FindWagerByExternalID(ctx context.Context, providerID, externalTxID string) (*domain.WagerTransaction, error) {
 	query := `SELECT id, provider_id, external_transaction_id, idempotency_key, wallet_id, player_id, kind, amount, currency, status, created_at FROM wager_transactions WHERE provider_id = $1 AND external_transaction_id = $2`
@@ -224,4 +215,17 @@ func (r *pgxWalletRepository) GetLedgerBalanceAndCount(ctx context.Context, wall
 	var balance int64
 	err := r.getQueryEngine(ctx).QueryRow(ctx, query, walletID).Scan(&count, &balance)
 	return balance, count, err
+}
+
+func (r *pgxWalletRepository) TryAcquireInboxMessage(ctx context.Context, consumerName, messageId string) (bool, error) {
+	query := `
+		INSERT INTO inbox (id, consumer_name, message_id) 
+		VALUES ($1, $2, $3) 
+		ON CONFLICT (consumer_name, message_id) DO NOTHING
+	`
+	tag, err := r.getQueryEngine(ctx).Exec(ctx, query, uuid.New().String(), consumerName, messageId)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }

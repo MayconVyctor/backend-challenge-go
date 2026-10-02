@@ -75,8 +75,7 @@ type WalletRepository interface {
 	SaveWagerTransaction(ctx context.Context, tx *WagerTransaction) error
 	SaveLedgerEntry(ctx context.Context, entry *WalletLedgerEntry) error
 	SaveOutboxEntry(ctx context.Context, entry *OutboxEntry) error
-	HasInboxMessage(ctx context.Context, consumerName, messageId string) (bool, error)
-	SaveInboxMessage(ctx context.Context, consumerName, messageId string) error
+	TryAcquireInboxMessage(ctx context.Context, consumerName, messageId string) (bool, error)
 	FindWagerByExternalID(ctx context.Context, providerID, externalTxID string) (*WagerTransaction, error)
 	GetLedgerBalanceAndCount(ctx context.Context, walletID string) (int64, int, error)
 }

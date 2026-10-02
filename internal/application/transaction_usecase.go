@@ -179,12 +179,7 @@ func (uc *TransactionUseCase) Execute(ctx context.Context, input ProcessTransact
 			return err
 		}
 
-		if input.MessageID != "" && input.ConsumerName != "" {
-			err = uc.repo.SaveInboxMessage(txCtx, input.ConsumerName, input.MessageID)
-			if err != nil {
-				return err
-			}
-		}
+
 
 		output = ProcessTransactionOutput{
 			TransactionID:    wagerTx.ID(),
