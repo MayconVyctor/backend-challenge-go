@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -14,8 +15,37 @@ type pgxWalletRepository struct {
 	db *pgxpool.Pool
 }
 
+type QueryEngine interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
 func NewPgxWalletRepository(db *pgxpool.Pool) domain.WalletRepository {
 	return &pgxWalletRepository{db: db}
+}
+
+func (r *pgxWalletRepository) getQueryEngine(ctx context.Context) QueryEngine {
+	tx, ok := ctx.Value("tx").(pgx.Tx)
+	if ok {
+		return tx
+	}
+	return r.db
+}
+
+func (r *pgxWalletRepository) RunInTransaction(ctx context.Context, fn func(txCtx context.Context) error) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+
+	txCtx := context.WithValue(ctx, "tx", tx)
+
+	if err := fn(txCtx); err != nil {
+		tx.Rollback(ctx)
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *pgxWalletRepository) Save(ctx context.Context, w *domain.Wallet) error {

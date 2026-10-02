@@ -69,6 +69,7 @@ type WalletRepository interface {
 	FindByID(ctx context.Context, id string) (*Wallet, error)
 	Save(ctx context.Context, w *Wallet) error
 	HasIdempotencyKey(ctx context.Context, key string) (bool, error)
+	RunInTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
 func RestoreWallet(id string, playerId string, currency string, balanceAmount int64, version int, createdAt time.Time, updatedAt time.Time) *Wallet {
